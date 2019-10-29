@@ -1,0 +1,374 @@
+#%RAML 1.0
+---
+title: CanVast
+baseUri: /{version}
+version: v0
+
+types:
+  username:
+    description: Username
+    type: string
+    pattern: "^[a-zA-Z][-.@\\w]*$"
+    maxLength: 64
+    example: "luff_bee@ex-ample.com"
+
+  password:
+    description: Password
+    type: string
+    pattern: "^[-.@\\w]*$"
+    minLength: 6
+    maxLength: 32
+    example: "p4_sS-w@.rD"
+
+  intro:
+    description: Brief introduction.
+    type: string
+    maxLength: 128
+    example: "Hello CanVast!"
+
+  color:
+    description: RGBA 256 color
+    type: string
+    pattern: "^[0-9A-F]{8}$"
+    example: "A3A3A3FF"
+
+  coordinate:
+    description: Pixel coordinate.
+    type: string
+    pattern: "^-?\d+,-?\d+$"
+    example: "314,-159"
+
+  blockpos:
+    description: |
+      Block position.
+
+      A block position is the coordinate of the left bottom pixel divided by `BLOCKSIZE`.
+    type: string
+    pattern: "^-?\d+,-?\d+$"
+    example: "314,-159"
+
+  offset:
+    description: Offset used in `base + offset` addressing.
+    type: object
+    properties:
+      x:
+        type: integer
+        format: int32
+        required: true
+      y:
+        type: integer
+        format: int32
+        required: true
+
+  failreason:
+    description: Reason for a failed request
+    type: object
+    properties:
+      reason: string
+
+traits:
+  secured:
+    headers:
+      Cookie:
+        description: Authentication cookie
+        required: true
+
+/user:
+  description: User
+  post:
+    description: Sign up a new user
+    body:
+      application/json:
+        type: object
+        properties:
+          name: username
+          password: password
+          intro: intro
+    responses:
+      200:
+        description: Success
+      409:
+        description: Username has already been used
+      422:
+        description: Invalid data
+        body:
+          application/json:
+            type: failreason
+
+
+  /auth:
+    description: Authentication of the current user.
+    post:
+      description: Login
+      body:
+        application/json:
+          type: object
+          properties:
+            name: username
+            password: password
+      responses:
+        200:
+          description: Login success
+          headers:
+            Set-Cookie:
+              description: Authentication cookie
+        401:
+          description: Login failed
+          body:
+            application/json:
+              type: failreason
+    delete:
+      is: [ secured ]
+      description: Logout
+      responses:
+        200:
+          description: Logout success
+        404:
+          description: Not logged in
+
+  /location:
+    description: A remembered location for transport
+    is: [ secured ]
+    put:
+      description: Remember user location for next login
+      body:
+        application/json:
+          type: object
+          properties:
+            location: coordinate
+      responses:
+        200:
+          description: Success
+
+    get:
+      description: Retrieve the last remembered location
+      responses:
+        200:
+          description: Success
+          body:
+            application/json:
+              type: object
+              properties:
+                location: coordinate
+
+/paint:
+  description: Paint related operations
+  /pixels:
+    description: Operations on pixels
+    put:
+      description: |
+        Set some pixels to a specified color.  
+
+        Pixels are addressed by base and offsets, the ith pixel is at `base * BLOCKSIZE + offsets[i]` .  
+      is: [ secured ]
+      body:
+        application/json:
+          type: object
+          properties:
+            color: color
+            base: blockpos
+            offsets:
+              type: offset[]
+              minItems: 1
+              maxItems: 256
+              uniqueItems: true
+          example: |
+            {
+              "color": "A3A3A3FF",
+              "base": "13A,-9F",
+              "offsets": [
+                {"x": 0, "y": 0},
+                {"x": 1, "y": -1},
+                {"x": 2, "y": -1}
+              ]
+            }
+      responses:
+        200:
+          description: Offsets of pixels that failed to set due to block locks.
+          body:
+            application/json:
+              type: offset[]
+              minItems: 0
+              maxItems: 256
+              example: |
+                [
+                  {"x": 2, "y": -1}
+                ]
+
+  /blocks:
+    description: Operations on blocks
+    get: 
+      description: Retrieve blocks in a rectangle that updated after the specified timestamp.  
+      queryParameters:
+        base:
+          description: Block position of the left bottem block
+          required: true
+          type: blockpos
+        width:
+          description: Width of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 128
+        height:
+          description: Height of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 128
+        timestamp:
+          description: Timestamp
+          required: true
+          type: integer
+          format: int64
+          multipleOf: 12
+          minimum: 0
+      responses:
+        200:
+          description: |
+            A zipfile named in `blocks_{new timestamp}.zip` format.  
+            The zipfile contains blocks have been updated after `timestamp` and before `new timestamp` .  
+            Each block should be named in `block_{offset x}_{offset y}.png` format.
+          body:
+            application/zip:
+              type: file
+
+    put:
+      description: |
+        Set blocks in a rectangle.  
+
+        Request body must be a zipfile which contains `width * height` png files with RGBA 256 color.  
+        Each png file should named in `block_{offset x}_{offset y}.png` format,  
+         where `0 <= offset x < width` and `0 <= offset y < height` .  
+      is: [ secured ]
+      queryParameters:
+        base:
+          description: Block position of the left bottem block
+          required: true
+          type: blockpos
+        width:
+          description: Width of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 32
+        height:
+          description: Height of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 32
+      body:
+        application/zip:
+          type: file
+      responses:
+        200:
+          description: Offsets of blocks that failed to set due to block locks.
+          body:
+            application/json:
+              type: offset[]
+              example: |
+                  [
+                    {"x": 0, "y": 1},
+                    {"x": 1, "y": 2}
+                  ]
+
+  /locks:
+    description: Operations on block locks
+    get:
+      description: Retrieve lock information in a rectangle
+      queryParameters:
+        base:
+          description: Block position of the left bottem block
+          required: true
+          type: blockpos
+        width:
+          description: Width of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 128
+        height:
+          description: Height of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 128
+      responses:
+        200:
+          description: Lock owner names in a 2-dimensional array.
+          body:
+            application/json:
+              type: username[][]
+              example: |
+                [
+                  ["Tom", "cowsay", "ddd"],
+                  ["Luffbee", "Sam", "bigBro"]
+                ]
+
+    post:
+      description: |
+        Lock blocks in a rectangle.  
+        
+        If any block in the rectangle is already locked by others, this operation does nothing.
+      is: [ secured ]
+      queryParameters:
+        base:
+          description: Block position of the left bottem block
+          required: true
+          type: blockpos
+        width:
+          description: Width of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 128
+        height:
+          description: Height of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 128
+      responses:
+        200:
+          description: Empty array for success, or offsets of blocks already locked by others.
+          body:
+            application/json:
+              type: offset[]
+              example: |
+                  [
+                    {"x": 0, "y": 1},
+                    {"x": 1, "y": 2}
+                  ]
+
+    delete:
+      description: Unlock blocks in a rectangle that already locked by current user
+      is: [ secured ]
+      queryParameters:
+        base:
+          description: Block position of the left bottem block
+          required: true
+          type: blockpos
+        width:
+          description: Width of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 128
+        height:
+          description: Height of the rectangle
+          required: true
+          type: integer
+          minimum: 1
+          maximum: 128
+      responses:
+        200:
+          description: Offsets unlocked
+          body:
+            application/json:
+              type: offset[]
+              example: |
+                  [
+                    {"x": 0, "y": 1},
+                    {"x": 1, "y": 2}
+                  ]
