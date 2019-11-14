@@ -35,7 +35,7 @@ types:
   coordinate:
     description: Pixel coordinate.
     type: string
-    pattern: "^-?\d+,-?\d+$"
+    pattern: ^-?\d+,-?\d+$
     example: "314,-159"
 
   blockpos:
@@ -44,7 +44,7 @@ types:
 
       A block position is the coordinate of the left bottom pixel divided by `BLOCKSIZE`.
     type: string
-    pattern: "^-?\d+,-?\d+$"
+    pattern: ^-?\d+,-?\d+$
     example: "314,-159"
 
   offset:
@@ -72,10 +72,25 @@ traits:
       Cookie:
         description: Authentication cookie
         required: true
+    responses:
+      401:
+        description: Unauthorized
+        body:
+          application/json:
+            type: failreason
+
+  validated:
+    responses:
+      422:
+        description: Invalid data
+        body:
+          application/json:
+            type: failreason
 
 /user:
   description: User
   post:
+    is: [ validated ]
     description: Sign up a new user
     body:
       application/json:
@@ -89,11 +104,6 @@ traits:
         description: Success
       409:
         description: Username has already been used
-      422:
-        description: Invalid data
-        body:
-          application/json:
-            type: failreason
 
 
   /auth:
@@ -123,14 +133,13 @@ traits:
       responses:
         200:
           description: Logout success
-        404:
-          description: Not logged in
 
   /location:
     description: A remembered location for transport
     is: [ secured ]
     put:
       description: Remember user location for next login
+      is: [ validated ]
       body:
         application/json:
           type: object
