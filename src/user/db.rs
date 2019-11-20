@@ -5,6 +5,7 @@ use std::sync::RwLock;
 use time::{Duration, Tm};
 
 use super::data::*;
+use super::{UserError, UserResult};
 
 const TIMEOUT: i64 = 30; // 30 days
 
@@ -12,14 +13,13 @@ type Token = String;
 
 pub trait DB: Send + Sync {
     fn new() -> Self;
-    fn get_user(&self, name: &str) -> Result<User, String>;
-    fn has_user(&self, name: &str) -> Result<bool, String>;
-    fn new_user(&self, user: WithPassword) -> Result<(), String>;
-    fn login(&self, user: &WithPassword) -> Result<(Token, Tm), String>;
-    fn check_token(&self, token: &str) -> Result<Username, String>;
-    fn logout(&self, token: &str) -> Result<(), String>;
-    fn set_location(&self, name: Username, loc: Location) -> Result<(), String>;
-    fn get_location(&self, name: &str) -> Result<Location, String>;
+    fn has_user(&self, name: &str) -> UserResult<bool>;
+    fn new_user(&self, user: WithPassword) -> UserResult<()>;
+    fn login(&self, user: &WithPassword) -> UserResult<(Token, Tm)>;
+    fn check_token(&self, token: &str) -> UserResult<Username>;
+    fn logout(&self, token: &str) -> UserResult<()>;
+    fn set_location(&self, name: Username, loc: Location) -> UserResult<()>;
+    fn get_location(&self, name: &str) -> UserResult<Location>;
 }
 
 pub struct SharedDB(RwLock<SimpleDB>);
@@ -29,35 +29,31 @@ impl DB for SharedDB {
         Self(RwLock::new(SimpleDB::new()))
     }
 
-    fn get_user(&self, name: &str) -> Result<User, String> {
-        self.0.read().unwrap().get_user(name)
-    }
-
-    fn has_user(&self, name: &str) -> Result<bool, String> {
+    fn has_user(&self, name: &str) -> UserResult<bool> {
         self.0.read().unwrap().has_user(name)
     }
 
-    fn new_user(&self, user: WithPassword) -> Result<(), String> {
+    fn new_user(&self, user: WithPassword) -> UserResult<()> {
         self.0.write().unwrap().new_user(user)
     }
 
-    fn login(&self, user: &WithPassword) -> Result<(Token, Tm), String> {
+    fn login(&self, user: &WithPassword) -> UserResult<(Token, Tm)> {
         self.0.write().unwrap().login(user)
     }
 
-    fn check_token(&self, token: &str) -> Result<Username, String> {
+    fn check_token(&self, token: &str) -> UserResult<Username> {
         self.0.read().unwrap().check_token(token)
     }
 
-    fn logout(&self, token: &str) -> Result<(), String> {
+    fn logout(&self, token: &str) -> UserResult<()> {
         self.0.write().unwrap().logout(token)
     }
 
-    fn set_location(&self, name: Username, loc: Location) -> Result<(), String> {
+    fn set_location(&self, name: Username, loc: Location) -> UserResult<()> {
         self.0.write().unwrap().set_location(name, loc)
     }
 
-    fn get_location(&self, name: &str) -> Result<Location, String> {
+    fn get_location(&self, name: &str) -> UserResult<Location> {
         self.0.read().unwrap().get_location(name)
     }
 }
@@ -82,23 +78,16 @@ impl SimpleDB {
         }
     }
 
-    fn get_user(&self, name: &str) -> Result<User, String> {
-        match self.users.get(name) {
-            Some(u) => Ok(u.user.clone()),
-            None => Err("user not exist".to_owned()),
-        }
-    }
-
-    fn has_user(&self, name: &str) -> Result<bool, String> {
+    fn has_user(&self, name: &str) -> UserResult<bool> {
         match self.users.get(name) {
             Some(_) => Ok(true),
             None => Ok(false),
         }
     }
 
-    fn new_user(&mut self, user: WithPassword) -> Result<(), String> {
+    fn new_user(&mut self, user: WithPassword) -> UserResult<()> {
         if self.has_user(&user.user.name)? {
-            return Err("user already exist".to_owned());
+            return Err(UserError::UserAlreadyExist);
         }
         println!(
             "{} {}",
@@ -109,13 +98,13 @@ impl SimpleDB {
         Ok(())
     }
 
-    fn login(&mut self, user: &WithPassword) -> Result<(Token, Tm), String> {
-        let u = match self.users.get(&user.user.name) {
-            Some(u) => u,
-            None => return Err("user not exist".to_owned()),
-        };
+    fn login(&mut self, user: &WithPassword) -> UserResult<(Token, Tm)> {
+        let u = self
+            .users
+            .get(&user.user.name)
+            .ok_or(UserError::LoginFailed)?;
         if u.password != user.password {
-            return Err("invalid password or username".to_owned());
+            return Err(UserError::LoginFailed);
         }
 
         // check passed
@@ -135,12 +124,12 @@ impl SimpleDB {
         Ok((token, exp))
     }
 
-    fn check_token(&self, token: &str) -> Result<Username, String> {
+    fn check_token(&self, token: &str) -> UserResult<Username> {
         match self.tokens.get(token) {
-            None => Err("invalid token".to_owned()),
+            None => Err(UserError::BadToken),
             Some(info) => {
                 if info.expire < time::now() {
-                    Err("token expired".to_owned())
+                    Err(UserError::BadToken)
                 } else {
                     Ok(info.name.clone())
                 }
@@ -148,9 +137,9 @@ impl SimpleDB {
         }
     }
 
-    fn logout(&mut self, token: &str) -> Result<(), String> {
+    fn logout(&mut self, token: &str) -> UserResult<()> {
         match self.tokens.get(token) {
-            None => Err("invalid token".to_owned()),
+            None => Err(UserError::BadToken),
             Some(_) => {
                 self.tokens.remove(token);
                 Ok(())
@@ -158,16 +147,14 @@ impl SimpleDB {
         }
     }
 
-    fn set_location(&mut self, name: Username, loc: Location) -> Result<(), String> {
+    fn set_location(&mut self, name: Username, loc: Location) -> UserResult<()> {
         self.locations.insert(name, loc);
         Ok(())
     }
 
-    fn get_location(&self, name: &str) -> Result<Location, String> {
+    fn get_location(&self, name: &str) -> UserResult<Location> {
         match self.locations.get(name) {
-            None => Ok(Location {
-                location: "0,0".to_owned(),
-            }),
+            None => Ok(Location::default()),
             Some(loc) => Ok(loc.clone()),
         }
     }
