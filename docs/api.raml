@@ -32,20 +32,24 @@ types:
     pattern: "^[0-9A-F]{8}$"
     example: "A3A3A3FF"
 
-  coordinate:
+  pixelpos:
     description: Pixel coordinate.
-    type: string
-    pattern: ^-?\d+,-?\d+$
-    example: "314,-159"
+    type: object
+    properties:
+      x:
+        type: integer
+        format: int64
+        required: true
+      y:
+        type: integer
+        format: int64
+        required: true
 
   blockpos:
     description: |
-      Block position.
-
-      A block position is the coordinate of the left bottom pixel divided by `BLOCKSIZE`.
+      Block position, the coordinate of the left bottom pixel divided by `BLOCKSIZE`.
     type: string
     pattern: ^-?\d+,-?\d+$
-    example: "314,-159"
 
   offset:
     description: Offset used in `base + offset` addressing.
@@ -62,9 +66,7 @@ types:
 
   failreason:
     description: Reason for a failed request
-    type: object
-    properties:
-      reason: string
+    type: string
 
 traits:
   secured:
@@ -76,7 +78,7 @@ traits:
       401:
         description: Unauthorized
         body:
-          application/json:
+          text/plain:
             type: failreason
 
   validated:
@@ -84,8 +86,24 @@ traits:
       422:
         description: Invalid data
         body:
-          application/json:
+          text/plain:
             type: failreason
+
+  query_rect:
+    queryParameters:
+      base: blockpos
+      width:
+        description: Width of the rectangle
+        required: true
+        type: integer
+        minimum: 1
+        maximum: 128
+      height:
+        description: Height of the rectangle
+        required: true
+        type: integer
+        minimum: 1
+        maximum: 128
 
 /user:
   description: User
@@ -98,7 +116,6 @@ traits:
         properties:
           name: username
           password: password
-          intro: intro
     responses:
       200:
         description: Success
@@ -125,7 +142,7 @@ traits:
         401:
           description: Login failed
           body:
-            application/json:
+            text/plain:
               type: failreason
     delete:
       is: [ secured ]
@@ -142,9 +159,7 @@ traits:
       is: [ validated ]
       body:
         application/json:
-          type: object
-          properties:
-            location: coordinate
+          type: pixelpos
       responses:
         200:
           description: Success
@@ -156,9 +171,7 @@ traits:
           description: Success
           body:
             application/json:
-              type: object
-              properties:
-                location: coordinate
+              type: pixelpos
 
 /paint:
   description: Paint related operations
@@ -175,17 +188,15 @@ traits:
           type: object
           properties:
             color: color
-            base: blockpos
-            offsets:
-              type: offset[]
+            pixels:
+              type: pixelpos[]
               minItems: 1
               maxItems: 256
               uniqueItems: true
           example: |
             {
               "color": "A3A3A3FF",
-              "base": "13A,-9F",
-              "offsets": [
+              "pixels": [
                 {"x": 0, "y": 0},
                 {"x": 1, "y": -1},
                 {"x": 2, "y": -1}
@@ -196,7 +207,7 @@ traits:
           description: Offsets of pixels that failed to set due to block locks.
           body:
             application/json:
-              type: offset[]
+              type: pixelpos[]
               minItems: 0
               maxItems: 256
               example: |
@@ -206,25 +217,10 @@ traits:
 
   /blocks:
     description: Operations on blocks
+    is: [ query_rect ]
     get: 
       description: Retrieve blocks in a rectangle that updated after the specified timestamp.  
       queryParameters:
-        base:
-          description: Block position of the left bottem block
-          required: true
-          type: blockpos
-        width:
-          description: Width of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 128
-        height:
-          description: Height of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 128
         timestamp:
           description: Timestamp
           required: true
@@ -250,23 +246,6 @@ traits:
         Each png file should named in `block_{offset x}_{offset y}.png` format,  
          where `0 <= offset x < width` and `0 <= offset y < height` .  
       is: [ secured ]
-      queryParameters:
-        base:
-          description: Block position of the left bottem block
-          required: true
-          type: blockpos
-        width:
-          description: Width of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 32
-        height:
-          description: Height of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 32
       body:
         application/zip:
           type: file
@@ -284,25 +263,9 @@ traits:
 
   /locks:
     description: Operations on block locks
+    is: [ query_rect ]
     get:
       description: Retrieve lock information in a rectangle
-      queryParameters:
-        base:
-          description: Block position of the left bottem block
-          required: true
-          type: blockpos
-        width:
-          description: Width of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 128
-        height:
-          description: Height of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 128
       responses:
         200:
           description: Lock owner names in a 2-dimensional array.
@@ -321,23 +284,6 @@ traits:
         
         If any block in the rectangle is already locked by others, this operation does nothing.
       is: [ secured ]
-      queryParameters:
-        base:
-          description: Block position of the left bottem block
-          required: true
-          type: blockpos
-        width:
-          description: Width of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 128
-        height:
-          description: Height of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 128
       responses:
         200:
           description: Empty array for success, or offsets of blocks already locked by others.
@@ -353,23 +299,6 @@ traits:
     delete:
       description: Unlock blocks in a rectangle that already locked by current user
       is: [ secured ]
-      queryParameters:
-        base:
-          description: Block position of the left bottem block
-          required: true
-          type: blockpos
-        width:
-          description: Width of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 128
-        height:
-          description: Height of the rectangle
-          required: true
-          type: integer
-          minimum: 1
-          maximum: 128
       responses:
         200:
           description: Offsets unlocked
