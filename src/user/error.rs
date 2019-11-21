@@ -17,11 +17,6 @@ pub enum UserError {
     BadToken,
 }
 
-#[derive(Serialize)]
-struct FailedReason {
-    reason: String,
-}
-
 impl ResponseError for UserError {
     fn error_response(&self) -> HttpResponse {
         use UserError::*;

@@ -6,7 +6,7 @@ use actix_web::{middleware, web, web::Data, App, HttpServer, Scope};
 
 mod paint;
 mod user;
-use user::DB;
+use user::UserDB;
 
 const APPNAME: &str = "CanVAST";
 
@@ -26,7 +26,7 @@ fn main() {
     .unwrap();
 }
 
-fn api_v1<U: user::DB + 'static>(user_db: Data<U>) -> Scope {
+fn api_v1<U: user::UserDB + 'static>(user_db: Data<U>) -> Scope {
     const VERSION: &str = "v1";
     web::scope(&format!("/{}", VERSION))
         .register_data(user_db)

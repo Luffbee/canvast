@@ -11,7 +11,7 @@ const TIMEOUT: i64 = 30; // 30 days
 
 type Token = String;
 
-pub trait DB: Send + Sync {
+pub trait UserDB: Send + Sync {
     fn new() -> Self;
     fn has_user(&self, name: &str) -> UserResult<bool>;
     fn new_user(&self, user: WithPassword) -> UserResult<()>;
@@ -24,7 +24,7 @@ pub trait DB: Send + Sync {
 
 pub struct SharedDB(RwLock<SimpleDB>);
 
-impl DB for SharedDB {
+impl UserDB for SharedDB {
     fn new() -> Self {
         Self(RwLock::new(SimpleDB::new()))
     }

@@ -11,12 +11,12 @@ pub use data::User;
 use data::*;
 
 mod db;
-pub use db::{SharedDB, DB};
+pub use db::{SharedDB, UserDB};
 
 mod error;
 pub use error::{UserError, UserResult};
 
-pub fn config<T: DB + 'static>(cfg: &mut web::ServiceConfig) {
+pub fn config<T: UserDB + 'static>(cfg: &mut web::ServiceConfig) {
     cfg.service(
         web::scope("/user")
             .route("", web::post().to(register::<T>))
@@ -33,7 +33,7 @@ pub fn config<T: DB + 'static>(cfg: &mut web::ServiceConfig) {
     );
 }
 
-fn register<T: DB>(db: Data<T>, user: Json<WithPassword>) -> Result<()> {
+fn register<T: UserDB>(db: Data<T>, user: Json<WithPassword>) -> Result<()> {
     user.validate()?;
     db.new_user(user.into_inner())?;
     Ok(())
@@ -41,7 +41,7 @@ fn register<T: DB>(db: Data<T>, user: Json<WithPassword>) -> Result<()> {
 
 const TOKEN_NAME: &str = "CanVastAuthToken";
 
-fn login<T: DB>(db: Data<T>, user: Json<WithPassword>) -> Result<impl Responder> {
+fn login<T: UserDB>(db: Data<T>, user: Json<WithPassword>) -> Result<impl Responder> {
     let (token, exp) = db.login(&user)?;
     let cookie = Cookie::build(TOKEN_NAME, token)
         .path("/")
@@ -52,27 +52,31 @@ fn login<T: DB>(db: Data<T>, user: Json<WithPassword>) -> Result<impl Responder>
     Ok(web::HttpResponse::Ok().cookie(cookie).finish())
 }
 
-fn logout<T: DB>(db: Data<T>, req: HttpRequest) -> Result<()> {
-    let cookie = req.cookie(TOKEN_NAME).ok_or(UserError::NoToken)?;
+fn logout<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<()> {
+    let cookie = get_cookie(&req)?;
     db.logout(cookie.value())?;
     Ok(())
 }
 
-fn set_location<T: DB>(db: Data<T>, req: HttpRequest, loc: Json<Location>) -> Result<()> {
+fn set_location<T: UserDB>(db: Data<T>, req: HttpRequest, loc: Json<Location>) -> Result<()> {
     loc.validate()?;
-    let name = get_user(&db, &req)?;
+    let name = authenticate(&db, &req)?;
     db.set_location(name, loc.into_inner())?;
     Ok(())
 }
 
-fn get_location<T: DB>(db: Data<T>, req: HttpRequest) -> Result<Json<Location>> {
-    let name = get_user(&db, &req)?;
+fn get_location<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<Json<Location>> {
+    let name = authenticate(&db, &req)?;
     let loc = db.get_location(&name)?;
     Ok(Json(loc))
 }
 
-fn get_user<T: DB>(db: &Data<T>, req: &HttpRequest) -> Result<Username> {
-    let cookie = req.cookie(TOKEN_NAME).ok_or(UserError::NoToken)?;
+fn get_cookie(req: &HttpRequest) -> Result<Cookie<'static>> {
+    Ok(req.cookie(TOKEN_NAME).ok_or(UserError::NoToken)?)
+}
+
+pub fn authenticate<T: UserDB>(db: &Data<T>, req: &HttpRequest) -> Result<Username> {
+    let cookie = get_cookie(req)?;
     let name = db.check_token(cookie.value())?;
     Ok(name)
 }
