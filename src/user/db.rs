@@ -1,7 +1,7 @@
+use parking_lot::RwLock;
 use rand::{thread_rng, Rng};
 
 use std::collections::HashMap;
-use std::sync::RwLock;
 use time::{Duration, Tm};
 
 use super::data::*;
@@ -30,31 +30,31 @@ impl UserDB for SharedDB {
     }
 
     fn has_user(&self, name: &str) -> UserResult<bool> {
-        self.0.read().unwrap().has_user(name)
+        self.0.read().has_user(name)
     }
 
     fn new_user(&self, user: WithPassword) -> UserResult<()> {
-        self.0.write().unwrap().new_user(user)
+        self.0.write().new_user(user)
     }
 
     fn login(&self, user: &WithPassword) -> UserResult<(Token, Tm)> {
-        self.0.write().unwrap().login(user)
+        self.0.write().login(user)
     }
 
     fn check_token(&self, token: &str) -> UserResult<Username> {
-        self.0.read().unwrap().check_token(token)
+        self.0.read().check_token(token)
     }
 
     fn logout(&self, token: &str) -> UserResult<()> {
-        self.0.write().unwrap().logout(token)
+        self.0.write().logout(token)
     }
 
     fn set_location(&self, name: Username, loc: Location) -> UserResult<()> {
-        self.0.write().unwrap().set_location(name, loc)
+        self.0.write().set_location(name, loc)
     }
 
     fn get_location(&self, name: &str) -> UserResult<Location> {
-        self.0.read().unwrap().get_location(name)
+        self.0.read().get_location(name)
     }
 }
 
@@ -89,11 +89,6 @@ impl SimpleDB {
         if self.has_user(&user.user.name)? {
             return Err(UserError::UserAlreadyExist);
         }
-        println!(
-            "{} {}",
-            serde_json::to_string(&user.user).unwrap(),
-            user.password
-        );
         self.users.insert(user.user.name.clone(), user);
         Ok(())
     }

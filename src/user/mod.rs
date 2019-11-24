@@ -7,8 +7,8 @@ use actix_web::{
 };
 
 mod data;
-pub use data::User;
 use data::*;
+pub use data::{User, Username};
 
 mod db;
 pub use db::{SharedDB, UserDB};
@@ -17,20 +17,17 @@ mod error;
 pub use error::{UserError, UserResult};
 
 pub fn config<T: UserDB + 'static>(cfg: &mut web::ServiceConfig) {
-    cfg.service(
-        web::scope("/user")
-            .route("", web::post().to(register::<T>))
-            .service(
-                web::resource("/auth")
-                    .route(web::post().to(login::<T>))
-                    .route(web::delete().to(logout::<T>)),
-            )
-            .service(
-                web::resource("/location")
-                    .route(web::get().to(get_location::<T>))
-                    .route(web::put().to(set_location::<T>)),
-            ),
-    );
+    cfg.route("", web::post().to(register::<T>))
+        .service(
+            web::resource("/auth")
+                .route(web::post().to(login::<T>))
+                .route(web::delete().to(logout::<T>)),
+        )
+        .service(
+            web::resource("/location")
+                .route(web::get().to(get_location::<T>))
+                .route(web::put().to(set_location::<T>)),
+        );
 }
 
 fn register<T: UserDB>(db: Data<T>, user: Json<WithPassword>) -> Result<()> {
