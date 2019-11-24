@@ -46,29 +46,6 @@ impl WithPassword {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
-pub struct Location {
-    pub location: String,
-}
-
-impl Location {
-    pub fn validate(&self) -> UserResult<()> {
-        const PAT: &str = r"^-?\d+,-?\d+$";
-        lazy_static! {
-            static ref RE: Regex = Regex::new(PAT).unwrap();
-        }
-        validate_pattern("location", &self.location, &RE)
-    }
-}
-
-impl Default for Location {
-    fn default() -> Self {
-        Location {
-            location: "0,0".to_owned(),
-        }
-    }
-}
-
 fn validate_length(name: &str, value: &str, len: &RangeInclusive<usize>) -> Result<(), UserError> {
     if !len.contains(&value.len()) {
         Err(UserError::InvalidData(format!(

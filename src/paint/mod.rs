@@ -13,6 +13,7 @@ use crate::user::{authenticate, UserDB};
 
 mod data;
 use data::*;
+pub use data::PixelPos;
 mod db;
 pub use db::{PaintDB, SharedDB};
 mod error;

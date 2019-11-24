@@ -8,7 +8,7 @@ use crate::user::Username;
 use super::error::{InternalError, PaintError, PaintResult};
 use super::now;
 
-#[derive(Clone, Copy, Eq, PartialEq, Deserialize)]
+#[derive(Clone, Copy, Eq, PartialEq, Deserialize, Serialize, Default)]
 pub struct PixelPos {
     pub x: i64,
     pub y: i64,

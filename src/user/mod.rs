@@ -6,6 +6,8 @@ use actix_web::{
     HttpMessage, HttpRequest, Responder,
 };
 
+use crate::paint::PixelPos;
+
 mod data;
 use data::*;
 pub use data::{User, Username};
@@ -55,14 +57,13 @@ fn logout<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<()> {
     Ok(())
 }
 
-fn set_location<T: UserDB>(db: Data<T>, req: HttpRequest, loc: Json<Location>) -> Result<()> {
-    loc.validate()?;
+fn set_location<T: UserDB>(db: Data<T>, req: HttpRequest, loc: Json<PixelPos>) -> Result<()> {
     let name = authenticate(&db, &req)?;
     db.set_location(name, loc.into_inner())?;
     Ok(())
 }
 
-fn get_location<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<Json<Location>> {
+fn get_location<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<Json<PixelPos>> {
     let name = authenticate(&db, &req)?;
     let loc = db.get_location(&name)?;
     Ok(Json(loc))

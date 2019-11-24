@@ -4,6 +4,8 @@ use rand::{thread_rng, Rng};
 use std::collections::HashMap;
 use time::{Duration, Tm};
 
+use crate::paint::PixelPos;
+
 use super::data::*;
 use super::{UserError, UserResult};
 
@@ -18,8 +20,8 @@ pub trait UserDB: Send + Sync {
     fn login(&self, user: &WithPassword) -> UserResult<(Token, Tm)>;
     fn check_token(&self, token: &str) -> UserResult<Username>;
     fn logout(&self, token: &str) -> UserResult<()>;
-    fn set_location(&self, name: Username, loc: Location) -> UserResult<()>;
-    fn get_location(&self, name: &str) -> UserResult<Location>;
+    fn set_location(&self, name: Username, loc: PixelPos) -> UserResult<()>;
+    fn get_location(&self, name: &str) -> UserResult<PixelPos>;
 }
 
 pub struct SharedDB(RwLock<SimpleDB>);
@@ -49,11 +51,11 @@ impl UserDB for SharedDB {
         self.0.write().logout(token)
     }
 
-    fn set_location(&self, name: Username, loc: Location) -> UserResult<()> {
+    fn set_location(&self, name: Username, loc: PixelPos) -> UserResult<()> {
         self.0.write().set_location(name, loc)
     }
 
-    fn get_location(&self, name: &str) -> UserResult<Location> {
+    fn get_location(&self, name: &str) -> UserResult<PixelPos> {
         self.0.read().get_location(name)
     }
 }
@@ -66,7 +68,7 @@ struct TokenInfo {
 struct SimpleDB {
     users: HashMap<String, WithPassword>,
     tokens: HashMap<Token, TokenInfo>,
-    locations: HashMap<String, Location>,
+    locations: HashMap<String, PixelPos>,
 }
 
 impl SimpleDB {
@@ -142,14 +144,14 @@ impl SimpleDB {
         }
     }
 
-    fn set_location(&mut self, name: Username, loc: Location) -> UserResult<()> {
+    fn set_location(&mut self, name: Username, loc: PixelPos) -> UserResult<()> {
         self.locations.insert(name, loc);
         Ok(())
     }
 
-    fn get_location(&self, name: &str) -> UserResult<Location> {
+    fn get_location(&self, name: &str) -> UserResult<PixelPos> {
         match self.locations.get(name) {
-            None => Ok(Location::default()),
+            None => Ok(PixelPos::default()),
             Some(loc) => Ok(loc.clone()),
         }
     }
