@@ -33,36 +33,53 @@ types:
     example: "A3A3A3FF"
 
   pixelpos:
-    description: Pixel coordinate.
+    description: Pixel coordinate
     type: object
     properties:
       x:
         type: integer
-        format: int64
         required: true
+        format: int64
       y:
         type: integer
-        format: int64
         required: true
-
-  blockpos:
-    description: |
-      Block position, the coordinate of the left bottom pixel divided by `BLOCKSIZE`.
-    type: string
-    pattern: ^-?\d+,-?\d+$
+        format: int64
 
   offset:
-    description: Offset used in `base + offset` addressing.
+    description: Offset of a pixel from another pixel
     type: object
     properties:
       x:
         type: integer
-        format: int32
         required: true
+        minimum: -1024
+        maximum: 1024
       y:
         type: integer
-        format: int32
         required: true
+        minimum: -1024
+        maximum: 1024
+
+  move:
+    description: Movement of a line segment
+    type: object
+    properties:
+      x:
+        type: integer
+        required: true
+        minimum: -2024
+        maximum: 2024
+      y:
+        type: integer
+        required: true
+        minimum: -2024
+        maximum: 2024
+
+  okcnt:
+    description: Number of pixels that successfully drawn
+    type: object
+    properties:
+      success_pixels: integer
 
   failreason:
     description: Reason for a failed request
@@ -91,19 +108,28 @@ traits:
 
   query_rect:
     queryParameters:
-      base: blockpos
-      width:
+      x:
+        description: X of the left bottom block
+        required: true
+        type: integer
+        format: int64
+      y:
+        description: Y of the left bottom block
+        required: true
+        type: integer
+        format: int64
+      w:
         description: Width of the rectangle
         required: true
         type: integer
-        minimum: 1
-        maximum: 128
-      height:
+        minimum: 0
+        maximum: 255
+      h:
         description: Height of the rectangle
         required: true
         type: integer
-        minimum: 1
-        maximum: 128
+        minimum: 0
+        maximum: 255
 
 /user:
   description: User
@@ -177,26 +203,25 @@ traits:
   description: Paint related operations
   /pixels:
     description: Operations on pixels
-    put:
+    patch:
       description: |
-        Set some pixels to a specified color.  
-
-        Pixels are addressed by base and offsets, the ith pixel is at `base * BLOCKSIZE + offsets[i]` .  
-      is: [ secured ]
+        Draw some pixels with the specified color. 
+        Pixels are addressed by base and offsets, the ith pixel is at `base + offsets[i]` .  
+      is: [ secured, validated ]
       body:
         application/json:
           type: object
           properties:
             color: color
-            pixels:
-              type: pixelpos[]
-              minItems: 1
-              maxItems: 256
-              uniqueItems: true
+            base: pixelpos
+            offsets:
+              type: offset[]
+              maxItems: 1024
           example: |
             {
               "color": "A3A3A3FF",
-              "pixels": [
+              "base": {"x": 100, "y": -100},
+              "offsets": [
                 {"x": 0, "y": 0},
                 {"x": 1, "y": -1},
                 {"x": 2, "y": -1}
@@ -204,39 +229,63 @@ traits:
             }
       responses:
         200:
-          description: Offsets of pixels that failed to set due to block locks.
+          description: Number of pixels drawn.
           body:
             application/json:
-              type: pixelpos[]
-              minItems: 0
-              maxItems: 256
-              example: |
-                [
-                  {"x": 2, "y": -1}
-                ]
+              type: okcnt
+
+  /lines:
+    description: Operations on lines
+    patch:
+      description: Draw continuous line segments with specified color.  
+      is: [ secured, validated ]
+      body:
+        application/json:
+          type: object
+          properties:
+            color: color
+            start: pixelpos
+            moves:
+              type: move[]
+          example: |
+            {
+              "color": "A3A3A3FF",
+              "start": {"x": 0, "y": 0},
+              "moves": [
+                {"x": 5, "y": 0},
+                {"x": 0, "y": 15},
+                {"x": 10, "y": -5}
+              ]
+            }
+      responses:
+        200:
+          description: Number of pixels drawn.
+          body:
+            application/json:
+              type: okcnt
 
   /blocks:
     description: Operations on blocks
-    is: [ query_rect ]
+    is: [ query_rect, validated ]
     get: 
       description: Retrieve blocks in a rectangle that updated after the specified timestamp.  
       queryParameters:
-        timestamp:
-          description: Timestamp
+        ts:
+          description: Timestamp, uint64 format.
           required: true
           type: integer
-          format: int64
-          multipleOf: 12
-          minimum: 0
       responses:
         200:
           description: |
-            A zipfile named in `blocks_{new timestamp}.zip` format.  
-            The zipfile contains blocks have been updated after `timestamp` and before `new timestamp` .  
-            Each block should be named in `block_{offset x}_{offset y}.png` format.
+            A zipfile containing blocks have been updated after `ts` .  
+            Each block will named in `{offset_x}_{offset_y}_{mtime}.png` format.  
+            `offset_x` and `offset_y` are offset of the block in the querying rectangle.  
+            `mtime` is the last modify time of the block.
           body:
             application/zip:
               type: file
+        204:
+          description: No block has been updated after `ts` .
 
     put:
       description: |
