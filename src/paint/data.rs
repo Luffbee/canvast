@@ -32,8 +32,8 @@ impl Add<Delta> for PixelPos {
     type Output = PixelPos;
     fn add(self, rhs: Delta) -> PixelPos {
         PixelPos {
-            x: self.x + rhs.x as i64,
-            y: self.y + rhs.y as i64,
+            x: self.x.wrapping_add(rhs.x as i64),
+            y: self.y.wrapping_add(rhs.y as i64),
         }
     }
 }
