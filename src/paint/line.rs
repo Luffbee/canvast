@@ -74,7 +74,7 @@ mod tests {
                 for x in -50..=50 {
                     for y in -50..=50 {
                         check_line(
-                            PixelPos { x: x, y: y },
+                            PixelPos { x, y },
                             Delta {
                                 x: *sgn0 as i16 * 2,
                                 y: *sgn1 as i16 * 5,
@@ -82,7 +82,7 @@ mod tests {
                             path2_5.iter().map(|xy| (xy.0 + x, xy.1 + y)),
                         );
                         check_line(
-                            PixelPos { x: x, y: y },
+                            PixelPos { x, y },
                             Delta {
                                 x: *sgn1 as i16 * 5,
                                 y: *sgn0 as i16 * 2,
@@ -90,7 +90,7 @@ mod tests {
                             path5_2.iter().map(|xy| (xy.0 + x, xy.1 + y)),
                         );
                         check_line(
-                            PixelPos { x: x, y: y },
+                            PixelPos { x, y },
                             Delta { x: 0, y: 1 },
                             [(x, y)].iter().copied(),
                         )
