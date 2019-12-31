@@ -3,6 +3,7 @@ extern crate serde_derive;
 #[macro_use]
 extern crate lazy_static;
 use actix_web::{middleware, web, web::Data, App, HttpServer, Scope};
+use futures::future::ready;
 
 mod paint;
 use paint::{now, PaintDB};
@@ -16,7 +17,8 @@ lazy_static! {
     static ref PDB: Data<paint::SharedDB> = Data::new(paint::SharedDB::new());
 }
 
-fn main() {
+#[actix_rt::main]
+async fn main() -> std::io::Result<()> {
     // init the timer
     now();
     std::env::set_var("RUST_LOG", "actix_web=info");
@@ -28,10 +30,9 @@ fn main() {
             .wrap(middleware::Logger::default())
             .service(api_v0(UDB.clone(), PDB.clone()))
     })
-    .bind(&addr[..])
-    .unwrap()
+    .bind(&addr[..])?
     .run()
-    .unwrap();
+    .await
 }
 
 fn api_v0<U, P>(udb: Data<U>, pdb: Data<P>) -> Scope
@@ -41,17 +42,20 @@ where
 {
     const VERSION: &str = "v0";
     web::scope(&format!("/{}", VERSION))
-        .route("", web::get().to(|| format!("{} API {}", APPNAME, VERSION)))
-        .route("/ping", web::get().to(|| "pong"))
+        .route(
+            "",
+            web::get().to(|| ready(format!("{} API {}", APPNAME, VERSION))),
+        )
+        .route("/ping", web::get().to(|| ready("pong")))
         .service(
             web::scope("/user")
-                .register_data(udb.clone())
+                .app_data(udb.clone())
                 .configure(user::config::<U>),
         )
         .service(
             web::scope("/paint")
-                .register_data(udb)
-                .register_data(pdb)
+                .app_data(udb)
+                .app_data(pdb)
                 .configure(paint::config::<U, P>),
         )
 }

@@ -3,7 +3,7 @@ use actix_web::{
     http::Cookie,
     web,
     web::{Data, Json},
-    HttpMessage, HttpRequest, Responder,
+    HttpMessage, HttpRequest, HttpResponse, Responder,
 };
 
 use crate::paint::PixelPos;
@@ -32,15 +32,15 @@ pub fn config<T: UserDB + 'static>(cfg: &mut web::ServiceConfig) {
         );
 }
 
-fn register<T: UserDB>(db: Data<T>, user: Json<WithPassword>) -> Result<()> {
+async fn register<T: UserDB>(db: Data<T>, user: Json<WithPassword>) -> Result<impl Responder> {
     user.validate()?;
     db.new_user(user.into_inner())?;
-    Ok(())
+    Ok(HttpResponse::Ok())
 }
 
 const TOKEN_NAME: &str = "CanVastAuthToken";
 
-fn login<T: UserDB>(db: Data<T>, user: Json<WithPassword>) -> Result<impl Responder> {
+async fn login<T: UserDB>(db: Data<T>, user: Json<WithPassword>) -> Result<impl Responder> {
     let (token, exp) = db.login(&user)?;
     let cookie = Cookie::build(TOKEN_NAME, token)
         .path("/")
@@ -51,20 +51,24 @@ fn login<T: UserDB>(db: Data<T>, user: Json<WithPassword>) -> Result<impl Respon
     Ok(web::HttpResponse::Ok().cookie(cookie).finish())
 }
 
-fn logout<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<()> {
+async fn logout<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<impl Responder> {
     let cookie = get_cookie(&req)?;
     db.logout(cookie.value())?;
-    Ok(())
+    Ok(HttpResponse::Ok())
 }
 
-fn set_location<T: UserDB>(db: Data<T>, req: HttpRequest, loc: Json<PixelPos>) -> Result<()> {
-    let name = authenticate(&db, &req)?;
+async fn set_location<T: UserDB>(
+    db: Data<T>,
+    req: HttpRequest,
+    loc: Json<PixelPos>,
+) -> Result<impl Responder> {
+    let name = authenticate(&db, &req).await?;
     db.set_location(name, loc.into_inner())?;
-    Ok(())
+    Ok(HttpResponse::Ok())
 }
 
-fn get_location<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<Json<PixelPos>> {
-    let name = authenticate(&db, &req)?;
+async fn get_location<T: UserDB>(db: Data<T>, req: HttpRequest) -> Result<Json<PixelPos>> {
+    let name = authenticate(&db, &req).await?;
     let loc = db.get_location(&name)?;
     Ok(Json(loc))
 }
@@ -73,7 +77,7 @@ fn get_cookie(req: &HttpRequest) -> Result<Cookie<'static>> {
     Ok(req.cookie(TOKEN_NAME).ok_or(UserError::NoToken)?)
 }
 
-pub fn authenticate<T: UserDB>(db: &Data<T>, req: &HttpRequest) -> Result<Username> {
+pub async fn authenticate<T: UserDB>(db: &Data<T>, req: &HttpRequest) -> Result<Username> {
     let cookie = get_cookie(req)?;
     let name = db.check_token(cookie.value())?;
     Ok(name)

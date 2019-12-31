@@ -12,8 +12,8 @@ use std::io::{Cursor, Seek, Write};
 use crate::user::{authenticate, UserDB};
 
 mod data;
-use data::*;
 pub use data::PixelPos;
+use data::*;
 mod db;
 pub use db::{PaintDB, SharedDB};
 mod error;
@@ -33,13 +33,13 @@ where
         .service(
             web::resource("/blocks")
                 .route(web::get().to(get_blocks::<P>))
-                .route(web::patch().to(|| "set blocks")),
+                .route(web::patch().to(set_blocks::<P>)),
         )
         .service(
             web::resource("/locks")
                 .route(web::get().to(get_locks::<U>))
-                .route(web::post().to(|| "create lock"))
-                .route(web::delete().to(|| "delete lock")),
+                .route(web::post().to(set_locks::<U>))
+                .route(web::delete().to(del_locks::<U>)),
         );
 }
 
@@ -70,7 +70,7 @@ impl PixelsBody {
     }
 }
 
-fn draw_pixels<U: UserDB, P: PaintDB>(
+async fn draw_pixels<U: UserDB, P: PaintDB>(
     udb: Data<U>,
     pdb: Data<P>,
     req: HttpRequest,
@@ -78,7 +78,7 @@ fn draw_pixels<U: UserDB, P: PaintDB>(
 ) -> Result<Json<SuccessCount>> {
     let color = RGBA::from_hex(&body.color)?;
     body.validate()?;
-    let user = authenticate(&udb, &req)?;
+    let user = authenticate(&udb, &req).await?;
     let offsets = body.offsets.iter().map(|d| body.base + *d);
     Ok(Json(SuccessCount(pdb.draw_pixels(&user, color, offsets)?)))
 }
@@ -109,7 +109,7 @@ impl LinesBody {
     }
 }
 
-fn draw_lines<U: UserDB, P: PaintDB>(
+async fn draw_lines<U: UserDB, P: PaintDB>(
     udb: Data<U>,
     pdb: Data<P>,
     req: HttpRequest,
@@ -117,7 +117,7 @@ fn draw_lines<U: UserDB, P: PaintDB>(
 ) -> Result<Json<SuccessCount>> {
     let color = RGBA::from_hex(&body.color)?;
     body.validate()?;
-    let user = authenticate(&udb, &req)?;
+    let user = authenticate(&udb, &req).await?;
     Ok(Json(SuccessCount(pdb.draw_lines(
         &user,
         color,
@@ -135,7 +135,7 @@ struct RectTs {
     ts: u64,
 }
 
-fn get_blocks<P: PaintDB>(pdb: Data<P>, Query(rect): Query<RectTs>) -> Result<HttpResponse> {
+async fn get_blocks<P: PaintDB>(pdb: Data<P>, Query(rect): Query<RectTs>) -> Result<HttpResponse> {
     let mut pngs = Vec::new();
     let base = BlockPos {
         x: rect.x,
@@ -163,6 +163,13 @@ fn get_blocks<P: PaintDB>(pdb: Data<P>, Query(rect): Query<RectTs>) -> Result<Ht
         .body(payload))
 }
 
+async fn set_blocks<P: PaintDB>(
+    _pdb: Data<P>,
+    Query(_rect): Query<RectTs>,
+) -> Result<HttpResponse> {
+    Ok(HttpResponse::Ok().finish())
+}
+
 fn zip_pngs<W: Write + Seek>(data: W, pngs: Vec<(String, Vec<u8>)>) -> Result<(), InternalError> {
     use zip::result::ZipError;
     let mut ziper = zip::ZipWriter::new(data);
@@ -174,8 +181,16 @@ fn zip_pngs<W: Write + Seek>(data: W, pngs: Vec<(String, Vec<u8>)>) -> Result<()
     Ok(())
 }
 
-fn get_locks<U: UserDB>(udb: Data<U>, req: HttpRequest) -> Result<String> {
-    Ok(authenticate(&udb, &req)?)
+async fn get_locks<U: UserDB>(udb: Data<U>, req: HttpRequest) -> Result<String> {
+    Ok(authenticate(&udb, &req).await?)
+}
+
+async fn set_locks<U: UserDB>(_udb: Data<U>, _req: HttpRequest) -> Result<&'static str> {
+    Ok("set locks")
+}
+
+async fn del_locks<U: UserDB>(_udb: Data<U>, _req: HttpRequest) -> Result<&'static str> {
+    Ok("delete locks")
 }
 
 #[inline]
