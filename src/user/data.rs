@@ -70,3 +70,45 @@ fn validate_pattern(name: &str, value: &str, re: &Regex) -> UserResult<()> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_user() -> UserResult<()> {
+        let u = User {
+            name: "root".to_owned(),
+        };
+        u.validate()?;
+        let u = User {
+            name: "A".to_owned(),
+        };
+        u.validate()?;
+        let u = User {
+            name: "aA-.1_1@333".to_owned(),
+        };
+        u.validate()?;
+        let u = User {
+            name: "a".repeat(64),
+        };
+        u.validate()?;
+        let u = User {
+            name: "".to_owned(),
+        };
+        assert_eq!(u.validate().is_err(), true);
+        let u = User {
+            name: "1244".to_owned(),
+        };
+        assert_eq!(u.validate().is_err(), true);
+        let u = User {
+            name: "a+jjjjj".to_owned(),
+        };
+        assert_eq!(u.validate().is_err(), true);
+        let u = User {
+            name: "a".repeat(65),
+        };
+        assert_eq!(u.validate().is_err(), true);
+        Ok(())
+    }
+}
