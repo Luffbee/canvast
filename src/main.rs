@@ -13,7 +13,7 @@ use user::UserDB;
 const APPNAME: &str = "CanVAST";
 
 lazy_static! {
-    static ref UDB: Data<user::SharedDB> = Data::new(user::SharedDB::new());
+    static ref UDB: Data<UserDB> = Data::new(UserDB::new());
     static ref PDB: Data<paint::SharedDB> = Data::new(paint::SharedDB::new());
 }
 
@@ -35,9 +35,8 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-fn api_v0<U, P>(udb: Data<U>, pdb: Data<P>) -> Scope
+fn api_v0<P>(udb: Data<UserDB>, pdb: Data<P>) -> Scope
 where
-    U: UserDB + 'static,
     P: PaintDB + 'static,
 {
     const VERSION: &str = "v0";
@@ -50,12 +49,12 @@ where
         .service(
             web::scope("/user")
                 .app_data(udb.clone())
-                .configure(user::config::<U>),
+                .configure(user::config),
         )
         .service(
             web::scope("/paint")
                 .app_data(udb)
                 .app_data(pdb)
-                .configure(paint::config::<U, P>),
+                .configure(paint::config::<P>),
         )
 }

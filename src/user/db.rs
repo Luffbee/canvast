@@ -13,49 +13,34 @@ const TIMEOUT: i64 = 30; // 30 days
 
 type Token = String;
 
-pub trait UserDB: Send + Sync {
-    fn new() -> Self;
-    fn has_user(&self, name: &str) -> UserResult<bool>;
-    fn new_user(&self, user: WithPassword) -> UserResult<()>;
-    fn login(&self, user: &WithPassword) -> UserResult<(Token, Tm)>;
-    fn check_token(&self, token: &str) -> UserResult<Username>;
-    fn logout(&self, token: &str) -> UserResult<()>;
-    fn set_location(&self, name: Username, loc: PixelPos) -> UserResult<()>;
-    fn get_location(&self, name: &str) -> UserResult<PixelPos>;
-}
+pub struct UserDB(RwLock<SimpleDB>);
 
-pub struct SharedDB(RwLock<SimpleDB>);
-
-impl UserDB for SharedDB {
-    fn new() -> Self {
+impl UserDB {
+    pub fn new() -> Self {
         Self(RwLock::new(SimpleDB::new()))
     }
 
-    fn has_user(&self, name: &str) -> UserResult<bool> {
-        self.0.read().has_user(name)
-    }
-
-    fn new_user(&self, user: WithPassword) -> UserResult<()> {
+    pub async fn new_user(&self, user: WithPassword) -> UserResult<()> {
         self.0.write().new_user(user)
     }
 
-    fn login(&self, user: &WithPassword) -> UserResult<(Token, Tm)> {
+    pub async fn login(&self, user: &WithPassword) -> UserResult<(Token, Tm)> {
         self.0.write().login(user)
     }
 
-    fn check_token(&self, token: &str) -> UserResult<Username> {
+    pub async fn check_token(&self, token: &str) -> UserResult<Username> {
         self.0.read().check_token(token)
     }
 
-    fn logout(&self, token: &str) -> UserResult<()> {
+    pub async fn logout(&self, token: &str) -> UserResult<()> {
         self.0.write().logout(token)
     }
 
-    fn set_location(&self, name: Username, loc: PixelPos) -> UserResult<()> {
+    pub async fn set_location(&self, name: Username, loc: PixelPos) -> UserResult<()> {
         self.0.write().set_location(name, loc)
     }
 
-    fn get_location(&self, name: &str) -> UserResult<PixelPos> {
+    pub async fn get_location(&self, name: &str) -> UserResult<PixelPos> {
         self.0.read().get_location(name)
     }
 }
@@ -152,7 +137,7 @@ impl SimpleDB {
     fn get_location(&self, name: &str) -> UserResult<PixelPos> {
         match self.locations.get(name) {
             None => Ok(PixelPos::default()),
-            Some(loc) => Ok(loc.clone()),
+            Some(loc) => Ok(*loc),
         }
     }
 }

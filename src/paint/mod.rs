@@ -23,13 +23,12 @@ mod line;
 mod timestamp;
 pub use timestamp::now;
 
-pub fn config<U, P>(cfg: &mut web::ServiceConfig)
+pub fn config<P>(cfg: &mut web::ServiceConfig)
 where
-    U: UserDB + 'static,
     P: PaintDB + 'static,
 {
-    cfg.route("/pixels", web::patch().to(draw_pixels::<U, P>))
-        .route("/lines", web::patch().to(draw_lines::<U, P>))
+    cfg.route("/pixels", web::patch().to(draw_pixels::<P>))
+        .route("/lines", web::patch().to(draw_lines::<P>))
         .service(
             web::resource("/blocks")
                 .route(web::get().to(get_blocks::<P>))
@@ -37,9 +36,9 @@ where
         )
         .service(
             web::resource("/locks")
-                .route(web::get().to(get_locks::<U>))
-                .route(web::post().to(set_locks::<U>))
-                .route(web::delete().to(del_locks::<U>)),
+                .route(web::get().to(get_locks))
+                .route(web::post().to(set_locks))
+                .route(web::delete().to(del_locks)),
         );
 }
 
@@ -70,8 +69,8 @@ impl PixelsBody {
     }
 }
 
-async fn draw_pixels<U: UserDB, P: PaintDB>(
-    udb: Data<U>,
+async fn draw_pixels<P: PaintDB>(
+    udb: Data<UserDB>,
     pdb: Data<P>,
     req: HttpRequest,
     body: Json<PixelsBody>,
@@ -109,8 +108,8 @@ impl LinesBody {
     }
 }
 
-async fn draw_lines<U: UserDB, P: PaintDB>(
-    udb: Data<U>,
+async fn draw_lines<P: PaintDB>(
+    udb: Data<UserDB>,
     pdb: Data<P>,
     req: HttpRequest,
     body: Json<LinesBody>,
@@ -181,15 +180,15 @@ fn zip_pngs<W: Write + Seek>(data: W, pngs: Vec<(String, Vec<u8>)>) -> Result<()
     Ok(())
 }
 
-async fn get_locks<U: UserDB>(udb: Data<U>, req: HttpRequest) -> Result<String> {
+async fn get_locks(udb: Data<UserDB>, req: HttpRequest) -> Result<String> {
     Ok(authenticate(&udb, &req).await?)
 }
 
-async fn set_locks<U: UserDB>(_udb: Data<U>, _req: HttpRequest) -> Result<&'static str> {
+async fn set_locks(_udb: Data<UserDB>, _req: HttpRequest) -> Result<&'static str> {
     Ok("set locks")
 }
 
-async fn del_locks<U: UserDB>(_udb: Data<U>, _req: HttpRequest) -> Result<&'static str> {
+async fn del_locks(_udb: Data<UserDB>, _req: HttpRequest) -> Result<&'static str> {
     Ok("delete locks")
 }
 
