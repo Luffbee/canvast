@@ -1,4 +1,5 @@
 use hex::FromHex;
+use serde_derive::{Deserialize, Serialize};
 
 use std::io::{Read, Write};
 use std::ops::Add;

@@ -1,7 +1,9 @@
+use async_trait::async_trait;
 use parking_lot::{RwLock, RwLockWriteGuard};
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
+use std::ops::FnOnce;
 
 use crate::user::Username;
 
@@ -10,67 +12,74 @@ use super::data::*;
 use super::line::LineIter;
 use super::PaintResult;
 
-pub trait PaintDB: Send + Sync {
-    fn new() -> Self;
-    fn draw_pixels<I>(&self, user: &str, color: RGBA, pixels: I) -> PaintResult<usize>
-    where
-        I: IntoIterator<Item = PixelPos>;
-    fn draw_lines<I>(
-        &self,
-        user: &str,
-        color: RGBA,
-        start: PixelPos,
-        deltas: I,
-    ) -> PaintResult<usize>
-    where
-        I: IntoIterator<Item = Delta>;
-    fn set_block<R: Read>(&self, user: &str, blk: BlockPos, src: R) -> PaintResult<bool>;
-    fn get_block<W: Write>(&self, blk: BlockPos, dst: W, ts: u64) -> PaintResult<u64>;
-    fn set_lock(&self, user: Username, blk: BlockPos) -> PaintResult<bool>;
-    fn get_lock(&self, blk: BlockPos) -> PaintResult<Username>;
-    fn del_lock(&self, user: &str, blk: BlockPos) -> PaintResult<bool>;
+#[async_trait]
+pub trait AsyncProc<T> {
+    async fn call(self, lock: &RwLock<BlockInfo>) -> PaintResult<T>;
 }
 
-pub struct SharedDB {
+struct ReadProc<F, T: 'static>(F)
+where
+    F: FnOnce(&BlockInfo) -> PaintResult<T> + Send;
+struct WriteProc<F, T: 'static>(F)
+where
+    F: FnOnce(&mut BlockInfo) -> PaintResult<T> + Send;
+
+#[async_trait]
+impl<F, T: 'static> AsyncProc<T> for ReadProc<F, T>
+where
+    F: FnOnce(&BlockInfo) -> PaintResult<T> + Send,
+{
+    async fn call(self, lock: &RwLock<BlockInfo>) -> PaintResult<T> {
+        let read = lock.read();
+        self.0(&read)
+    }
+}
+
+#[async_trait]
+impl<F, T: 'static> AsyncProc<T> for WriteProc<F, T>
+where
+    F: FnOnce(&mut BlockInfo) -> PaintResult<T> + Send,
+{
+    async fn call(self, lock: &RwLock<BlockInfo>) -> PaintResult<T> {
+        let mut write = lock.write();
+        self.0(&mut write)
+    }
+}
+
+pub struct PaintDB {
     blocks: RwLock<HashMap<BlockPos, RwLock<BlockInfo>>>,
 }
 
-impl SharedDB {
-    fn write_block<F, T>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
+impl PaintDB {
+    async fn write_block<F, T: 'static>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
     where
-        F: FnOnce(&mut BlockInfo) -> PaintResult<T>,
+        F: FnOnce(&mut BlockInfo) -> PaintResult<T> + Send,
     {
-        self.process_block(blk, |lock| {
-            let mut write = lock.write();
-            proc(&mut write)
-        })
+        self.process_block(blk, WriteProc(proc)).await
     }
 
-    fn read_block<F, T>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
+    async fn read_block<F, T: 'static>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
     where
-        F: FnOnce(&BlockInfo) -> PaintResult<T>,
+        F: FnOnce(&BlockInfo) -> PaintResult<T> + Send,
     {
-        self.process_block(blk, |lock| {
-            let read = lock.write();
-            proc(&read)
-        })
+        self.process_block(blk, ReadProc(proc)).await
     }
 
-    fn process_block<F, T>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
+    async fn process_block<F, T: 'static>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
     where
-        F: FnOnce(&RwLock<BlockInfo>) -> PaintResult<T>,
+        F: AsyncProc<T>,
     {
         let read = self.blocks.read();
         if let Some(p) = read.get(&blk) {
-            return proc(p);
+            return proc.call(p).await;
         }
         drop(read);
-        self.load_block(blk, proc)
+        self.load_block(blk, proc).await
     }
 
-    fn load_block<F, T>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
+    async fn load_block<F, T: 'static>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
     where
-        F: FnOnce(&RwLock<BlockInfo>) -> PaintResult<T>,
+        F: AsyncProc<T>,
     {
         let mut write = self.blocks.write();
         if write.get(&blk).is_none() {
@@ -78,19 +87,19 @@ impl SharedDB {
         }
         let read = RwLockWriteGuard::downgrade(write);
         match read.get(&blk) {
-            Some(p) => proc(p),
+            Some(p) => proc.call(p).await,
             None => unreachable!(),
         }
     }
 }
 
-impl PaintDB for SharedDB {
-    fn new() -> Self {
-        SharedDB {
+impl PaintDB {
+    pub fn new() -> Self {
+        Self {
             blocks: RwLock::new(HashMap::new()),
         }
     }
-    fn draw_pixels<I>(&self, user: &str, color: RGBA, pixels: I) -> PaintResult<usize>
+    pub async fn draw_pixels<I>(&self, user: &str, color: RGBA, pixels: I) -> PaintResult<usize>
     where
         I: IntoIterator<Item = PixelPos>,
     {
@@ -107,9 +116,11 @@ impl PaintDB for SharedDB {
                 offsets.push(p.offset());
                 pixels.next();
             }
-            let ok = self.write_block(blk, |info| {
-                Ok(info.draw_pixels(user, color, offsets.iter().cloned()))
-            })?;
+            let ok = self
+                .write_block(blk, |info| {
+                    Ok(info.draw_pixels(user, color, offsets.iter().cloned()))
+                })
+                .await?;
             if ok {
                 success_cnt += offsets.len();
             }
@@ -118,7 +129,7 @@ impl PaintDB for SharedDB {
         Ok(success_cnt)
     }
 
-    fn draw_lines<I>(
+    pub async fn draw_lines<I>(
         &self,
         user: &str,
         color: RGBA,
@@ -130,30 +141,47 @@ impl PaintDB for SharedDB {
     {
         let mut success_cnt = 0;
         for d in deltas {
-            success_cnt += self.draw_pixels(user, color, LineIter::new(start, d))?;
+            success_cnt += self
+                .draw_pixels(user, color, LineIter::new(start, d))
+                .await?;
             start = start + d;
         }
-        success_cnt += self.draw_pixels(user, color, LineIter::new(start, Delta { x: 0, y: 1 }))?;
+        success_cnt += self
+            .draw_pixels(user, color, LineIter::new(start, Delta { x: 0, y: 1 }))
+            .await?;
         Ok(success_cnt)
     }
 
-    fn set_block<R: Read>(&self, user: &str, blk: BlockPos, src: R) -> PaintResult<bool> {
+    pub async fn set_block<R: Read + Send>(
+        &self,
+        user: &str,
+        blk: BlockPos,
+        src: R,
+    ) -> PaintResult<bool> {
         self.write_block(blk, |info| info.draw_block_from_png(user, src))
+            .await
     }
 
-    fn get_block<W: Write>(&self, blk: BlockPos, dst: W, ts: u64) -> PaintResult<u64> {
+    pub async fn get_block<W: Write + Send>(
+        &self,
+        blk: BlockPos,
+        dst: W,
+        ts: u64,
+    ) -> PaintResult<u64> {
         self.read_block(blk, |info| info.block_to_png(dst, ts))
+            .await
     }
 
-    fn set_lock(&self, user: Username, blk: BlockPos) -> PaintResult<bool> {
-        self.write_block(blk, |info| Ok(info.set_owner(user)))
+    pub async fn set_lock(&self, user: Username, blk: BlockPos) -> PaintResult<bool> {
+        self.write_block(blk, |info| Ok(info.set_owner(user))).await
     }
 
-    fn get_lock(&self, blk: BlockPos) -> PaintResult<Username> {
-        self.read_block(blk, |info| Ok(info.get_owner()))
+    pub async fn get_lock(&self, blk: BlockPos) -> PaintResult<Username> {
+        self.read_block(blk, |info| Ok(info.get_owner())).await
     }
 
-    fn del_lock(&self, user: &str, blk: BlockPos) -> PaintResult<bool> {
+    pub async fn del_lock(&self, user: &str, blk: BlockPos) -> PaintResult<bool> {
         self.write_block(blk, |info| Ok(info.reset_owner(user)))
+            .await
     }
 }

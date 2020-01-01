@@ -1,9 +1,6 @@
-#[macro_use]
-extern crate serde_derive;
-#[macro_use]
-extern crate lazy_static;
 use actix_web::{middleware, web, web::Data, App, HttpServer, Scope};
 use futures::future::ready;
+use lazy_static::lazy_static;
 
 mod paint;
 use paint::{now, PaintDB};
@@ -14,7 +11,7 @@ const APPNAME: &str = "CanVAST";
 
 lazy_static! {
     static ref UDB: Data<UserDB> = Data::new(UserDB::new());
-    static ref PDB: Data<paint::SharedDB> = Data::new(paint::SharedDB::new());
+    static ref PDB: Data<PaintDB> = Data::new(PaintDB::new());
 }
 
 #[actix_rt::main]
@@ -35,9 +32,8 @@ async fn main() -> std::io::Result<()> {
     .await
 }
 
-fn api_v0<P>(udb: Data<UserDB>, pdb: Data<P>) -> Scope
+fn api_v0(udb: Data<UserDB>, pdb: Data<PaintDB>) -> Scope
 where
-    P: PaintDB + 'static,
 {
     const VERSION: &str = "v0";
     web::scope(&format!("/{}", VERSION))
@@ -55,6 +51,6 @@ where
             web::scope("/paint")
                 .app_data(udb)
                 .app_data(pdb)
-                .configure(paint::config::<P>),
+                .configure(paint::config),
         )
 }

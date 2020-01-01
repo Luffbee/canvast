@@ -5,6 +5,7 @@ use actix_web::{
     HttpRequest, HttpResponse,
 };
 use hex::FromHex;
+use serde_derive::{Deserialize, Serialize};
 
 use std::cmp::max;
 use std::io::{Cursor, Seek, Write};
@@ -15,7 +16,7 @@ mod data;
 pub use data::PixelPos;
 use data::*;
 mod db;
-pub use db::{PaintDB, SharedDB};
+pub use db::PaintDB;
 mod error;
 use error::InternalError;
 pub use error::{PaintError, PaintResult};
@@ -23,16 +24,13 @@ mod line;
 mod timestamp;
 pub use timestamp::now;
 
-pub fn config<P>(cfg: &mut web::ServiceConfig)
-where
-    P: PaintDB + 'static,
-{
-    cfg.route("/pixels", web::patch().to(draw_pixels::<P>))
-        .route("/lines", web::patch().to(draw_lines::<P>))
+pub fn config(cfg: &mut web::ServiceConfig) {
+    cfg.route("/pixels", web::patch().to(draw_pixels))
+        .route("/lines", web::patch().to(draw_lines))
         .service(
             web::resource("/blocks")
-                .route(web::get().to(get_blocks::<P>))
-                .route(web::patch().to(set_blocks::<P>)),
+                .route(web::get().to(get_blocks))
+                .route(web::patch().to(set_blocks)),
         )
         .service(
             web::resource("/locks")
@@ -69,9 +67,9 @@ impl PixelsBody {
     }
 }
 
-async fn draw_pixels<P: PaintDB>(
+async fn draw_pixels(
     udb: Data<UserDB>,
-    pdb: Data<P>,
+    pdb: Data<PaintDB>,
     req: HttpRequest,
     body: Json<PixelsBody>,
 ) -> Result<Json<SuccessCount>> {
@@ -79,7 +77,9 @@ async fn draw_pixels<P: PaintDB>(
     body.validate()?;
     let user = authenticate(&udb, &req).await?;
     let offsets = body.offsets.iter().map(|d| body.base + *d);
-    Ok(Json(SuccessCount(pdb.draw_pixels(&user, color, offsets)?)))
+    Ok(Json(SuccessCount(
+        pdb.draw_pixels(&user, color, offsets).await?,
+    )))
 }
 
 #[derive(Deserialize)]
@@ -108,21 +108,19 @@ impl LinesBody {
     }
 }
 
-async fn draw_lines<P: PaintDB>(
+async fn draw_lines(
     udb: Data<UserDB>,
-    pdb: Data<P>,
+    pdb: Data<PaintDB>,
     req: HttpRequest,
     body: Json<LinesBody>,
 ) -> Result<Json<SuccessCount>> {
     let color = RGBA::from_hex(&body.color)?;
     body.validate()?;
     let user = authenticate(&udb, &req).await?;
-    Ok(Json(SuccessCount(pdb.draw_lines(
-        &user,
-        color,
-        body.start,
-        body.moves.iter().copied(),
-    )?)))
+    Ok(Json(SuccessCount(
+        pdb.draw_lines(&user, color, body.start, body.moves.iter().copied())
+            .await?,
+    )))
 }
 
 #[derive(Deserialize)]
@@ -134,7 +132,7 @@ struct RectTs {
     ts: u64,
 }
 
-async fn get_blocks<P: PaintDB>(pdb: Data<P>, Query(rect): Query<RectTs>) -> Result<HttpResponse> {
+async fn get_blocks(pdb: Data<PaintDB>, Query(rect): Query<RectTs>) -> Result<HttpResponse> {
     let mut pngs = Vec::new();
     let base = BlockPos {
         x: rect.x,
@@ -143,7 +141,9 @@ async fn get_blocks<P: PaintDB>(pdb: Data<P>, Query(rect): Query<RectTs>) -> Res
     for i in 0..rect.w {
         for j in 0..rect.h {
             let mut data = Vec::<u8>::new();
-            let ts = pdb.get_block(base + (i as u8, j as u8), Cursor::new(&mut data), rect.ts)?;
+            let ts = pdb
+                .get_block(base + (i as u8, j as u8), Cursor::new(&mut data), rect.ts)
+                .await?;
             if ts > rect.ts {
                 let name = format!("{}_{}_{}.png", i, j, ts);
                 pngs.push((name, data));
@@ -162,10 +162,7 @@ async fn get_blocks<P: PaintDB>(pdb: Data<P>, Query(rect): Query<RectTs>) -> Res
         .body(payload))
 }
 
-async fn set_blocks<P: PaintDB>(
-    _pdb: Data<P>,
-    Query(_rect): Query<RectTs>,
-) -> Result<HttpResponse> {
+async fn set_blocks(_pdb: Data<PaintDB>, Query(_rect): Query<RectTs>) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().finish())
 }
 
