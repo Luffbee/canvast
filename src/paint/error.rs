@@ -1,5 +1,6 @@
 use actix_web::{HttpResponse, ResponseError};
 use thiserror::Error;
+use tokio::sync::watch::error::SendError;
 
 pub type PaintResult<T> = Result<T, PaintError>;
 
@@ -33,6 +34,10 @@ pub enum InternalError {
     PNGEncodeError(#[from] png::EncodingError),
     #[error("zip error")]
     ZipError(#[from] zip::result::ZipError),
+    #[error("block loading broadcast error")]
+    BlockLoadSendError(#[from] SendError<()>),
+    #[error("block loading retry limit exceeded")]
+    BlockLoadLimitExceeded,
 }
 
 impl ResponseError for InternalError {}

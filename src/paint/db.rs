@@ -1,5 +1,6 @@
 use async_trait::async_trait;
-use parking_lot::{RwLock, RwLockWriteGuard};
+use parking_lot::RwLock;
+use tokio::sync::{watch, Mutex};
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -11,6 +12,8 @@ use super::data::Delta;
 use super::data::*;
 use super::line::LineIter;
 use super::PaintResult;
+
+use super::error::InternalError;
 
 #[async_trait]
 pub trait AsyncProc<T> {
@@ -48,6 +51,7 @@ where
 
 pub struct PaintDB {
     blocks: RwLock<HashMap<BlockPos, RwLock<BlockInfo>>>,
+    loading: Mutex<HashMap<BlockPos, watch::Receiver<()>>>,
 }
 
 impl PaintDB {
@@ -69,26 +73,49 @@ impl PaintDB {
     where
         F: AsyncProc<T>,
     {
-        let read = self.blocks.read();
-        if let Some(p) = read.get(&blk) {
-            return proc.call(p).await;
+        let mut proc = Some(proc);
+        let mut retry_limit = 3;
+        loop {
+            if let Some(p) = self.blocks.read().get(&blk) {
+                return proc.unwrap().call(p).await;
+            }
+
+            if retry_limit > 0 {
+                retry_limit -= 1;
+            } else {
+                return Err(InternalError::BlockLoadLimitExceeded.into());
+            }
+
+            match self.load_block(blk, proc.unwrap()).await? {
+                Ok(ret) => return Ok(ret),
+                Err(p) => proc = Some(p),
+            }
         }
-        drop(read);
-        self.load_block(blk, proc).await
     }
 
-    async fn load_block<F, T: 'static>(&self, blk: BlockPos, proc: F) -> PaintResult<T>
+    async fn load_block<F, T: 'static>(&self, blk: BlockPos, proc: F) -> PaintResult<Result<T, F>>
     where
         F: AsyncProc<T>,
     {
-        let mut write = self.blocks.write();
-        if write.get(&blk).is_none() {
-            write.insert(blk, RwLock::new(BlockInfo::new()));
-        }
-        let read = RwLockWriteGuard::downgrade(write);
-        match read.get(&blk) {
-            Some(p) => proc.call(p).await,
-            None => unreachable!(),
+        let mut loading = self.loading.lock().await;
+        match loading.get(&blk) {
+            Some(rx) => {
+                let mut rx = rx.clone();
+                drop(loading);
+                rx.recv().await;
+                Ok(Err(proc))
+            }
+            None => {
+                let (tx, rx) = watch::channel(());
+                loading.insert(blk, rx);
+                drop(loading);
+                let block = RwLock::new(BlockInfo::new());
+                let ret = proc.call(&block).await;
+                self.blocks.write().insert(blk, block);
+                self.loading.lock().await.remove(&blk);
+                let _ = tx.broadcast(()); // error only when no receiver
+                ret.map(Ok)
+            }
         }
     }
 }
@@ -97,6 +124,7 @@ impl PaintDB {
     pub fn new() -> Self {
         Self {
             blocks: RwLock::new(HashMap::new()),
+            loading: Mutex::new(HashMap::new()),
         }
     }
     pub async fn draw_pixels<I>(&self, user: &str, color: RGBA, pixels: I) -> PaintResult<usize>
