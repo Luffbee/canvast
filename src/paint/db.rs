@@ -109,11 +109,26 @@ impl PaintDB {
                 let (tx, rx) = watch::channel(());
                 loading.insert(blk, rx);
                 drop(loading);
-                let block = RwLock::new(BlockInfo::new());
-                let ret = proc.call(&block).await;
-                self.blocks.write().insert(blk, block);
-                self.loading.lock().await.remove(&blk);
-                let _ = tx.broadcast(()); // error only when no receiver
+
+                let ret;
+
+                let blocks_read = self.blocks.read();
+                if let Some(block) = blocks_read.get(&blk) {
+                    self.loading.lock().await.remove(&blk);
+                    let _ = tx.broadcast(()); // error only when no receiver
+
+                    ret = proc.call(&block).await;
+                } else {
+                    drop(blocks_read); // prevent deadlock with later write
+
+                    let block = RwLock::new(BlockInfo::new());
+                    ret = proc.call(&block).await;
+                    self.blocks.write().insert(blk, block);
+
+                    self.loading.lock().await.remove(&blk);
+                    let _ = tx.broadcast(()); // error only when no receiver
+                }
+
                 ret.map(Ok)
             }
         }
