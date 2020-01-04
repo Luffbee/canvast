@@ -287,12 +287,12 @@ traits:
         204:
           description: No block has been updated after `ts` .
 
-    put:
+    patch:
       description: |
         Set blocks in a rectangle.  
 
         Request body must be a zipfile which contains `width * height` png files with RGBA 256 color.  
-        Each png file should named in `block_{offset x}_{offset y}.png` format,  
+        Each png file should named in `{offset x}_{offset y}.png` format,  
          where `0 <= offset x < width` and `0 <= offset y < height` .  
       is: [ secured ]
       body:

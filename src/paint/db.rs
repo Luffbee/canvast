@@ -3,7 +3,7 @@ use parking_lot::RwLock;
 use tokio::sync::{watch, Mutex};
 
 use std::collections::HashMap;
-use std::io::{Read, Write};
+use std::io::Write;
 use std::ops::FnOnce;
 
 use crate::user::Username;
@@ -195,13 +195,13 @@ impl PaintDB {
         Ok(success_cnt)
     }
 
-    pub async fn set_block<R: Read + Send>(
+    pub async fn set_block(
         &self,
         user: &str,
         blk: BlockPos,
-        src: R,
+        image: &RGBABlock,
     ) -> PaintResult<bool> {
-        self.write_block(blk, |info| info.draw_block_from_png(user, src))
+        self.write_block(blk, |info| Ok(info.draw_block(user, image)))
             .await
     }
 

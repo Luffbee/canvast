@@ -1,10 +1,12 @@
 use actix_web::{
     error::Result,
     web,
-    web::{Data, Json, Query},
+    web::{Bytes, Data, Json, Query},
     HttpRequest, HttpResponse,
 };
 use hex::FromHex;
+use lazy_static::lazy_static;
+use regex::Regex;
 use serde_derive::{Deserialize, Serialize};
 
 use std::cmp::max;
@@ -129,6 +131,7 @@ struct RectTs {
     y: i64,
     w: u8,
     h: u8,
+    #[serde(default)]
     ts: u64,
 }
 
@@ -162,10 +165,6 @@ async fn get_blocks(pdb: Data<PaintDB>, Query(rect): Query<RectTs>) -> Result<Ht
         .body(payload))
 }
 
-async fn set_blocks(_pdb: Data<PaintDB>, Query(_rect): Query<RectTs>) -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().finish())
-}
-
 fn zip_pngs<W: Write + Seek>(data: W, pngs: Vec<(String, Vec<u8>)>) -> Result<(), InternalError> {
     use zip::result::ZipError;
     let mut ziper = zip::ZipWriter::new(data);
@@ -175,6 +174,60 @@ fn zip_pngs<W: Write + Seek>(data: W, pngs: Vec<(String, Vec<u8>)>) -> Result<()
         ziper.write_all(&png).map_err(ZipError::from)?;
     }
     Ok(())
+}
+
+fn parse_offset(name: &str) -> Result<Offset> {
+    lazy_static! {
+        static ref RE: Regex = Regex::new(r"^(\d+)_(\d+)\.png$").unwrap();
+    }
+
+    use PaintError::*;
+    let caps = RE.captures(name).ok_or(InvalidPNGName)?;
+    let x = caps
+        .get(1)
+        .unwrap()
+        .as_str()
+        .parse::<u8>()
+        .map_err(|_| InvalidPNGName)?;
+    let y = caps
+        .get(2)
+        .unwrap()
+        .as_str()
+        .parse::<u8>()
+        .map_err(|_| InvalidPNGName)?;
+    Ok((x, y))
+}
+
+async fn set_blocks(
+    udb: Data<UserDB>,
+    pdb: Data<PaintDB>,
+    req: HttpRequest,
+    Query(rect): Query<RectTs>,
+    body: Bytes,
+) -> Result<Json<Vec<Delta>>> {
+    let base = BlockPos {
+        x: rect.x,
+        y: rect.y,
+    };
+    let body = Cursor::new(body);
+    let mut ziper = zip::ZipArchive::new(body).map_err(InternalError::from)?;
+
+    let user = authenticate(&udb, &req).await?;
+
+    let mut fails = Vec::new();
+    for i in 0..ziper.len() {
+        let block = ziper.by_index(i).map_err(InternalError::from)?;
+        let offset = parse_offset(block.name())?;
+        let blk = base + offset;
+        if !pdb
+            .set_block(&user, blk, &(RGBABlock::from_png(block)?))
+            .await?
+        {
+            fails.push(Delta::from(offset));
+        }
+    }
+
+    Ok(Json(fails))
 }
 
 async fn get_locks(udb: Data<UserDB>, req: HttpRequest) -> Result<String> {

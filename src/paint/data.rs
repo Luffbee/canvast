@@ -66,10 +66,19 @@ impl Into<PixelPos> for BlockPos {
 
 pub type Offset = (u8, u8);
 
-#[derive(Deserialize, Clone, Copy)]
+#[derive(Deserialize, Serialize, Clone, Copy)]
 pub struct Delta {
     pub x: i16,
     pub y: i16,
+}
+
+impl From<Offset> for Delta {
+    fn from(offset: Offset) -> Self {
+        Delta {
+            x: offset.0 as i16,
+            y: offset.1 as i16,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -245,16 +254,6 @@ impl BlockInfo {
             return true;
         }
         false
-    }
-
-    pub fn draw_block_from_png<R: Read>(&mut self, user: &str, src: R) -> PaintResult<bool> {
-        if self.accessable(user) {
-            let blk = RGBABlock::from_png(src)?;
-            self.data.draw_block(&blk);
-            self.mtime = now();
-            return Ok(true);
-        }
-        Ok(false)
     }
 
     pub fn set_owner(&mut self, user: Username) -> bool {
