@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse, ResponseError};
+use actix_web::{http::StatusCode, ResponseError};
 use thiserror::Error;
 
 pub type UserResult<T> = Result<T, UserError>;
@@ -18,12 +18,12 @@ pub enum UserError {
 }
 
 impl ResponseError for UserError {
-    fn error_response(&self) -> HttpResponse {
+    fn status_code(&self) -> StatusCode {
         use UserError::*;
         match self {
-            UserAlreadyExist => HttpResponse::Conflict().into(),
-            InvalidData(_) => HttpResponse::UnprocessableEntity().into(),
-            LoginFailed | NoToken | BadToken => HttpResponse::Unauthorized().into(),
+            UserAlreadyExist => StatusCode::CONFLICT,
+            InvalidData(_) => StatusCode::UNPROCESSABLE_ENTITY,
+            LoginFailed | NoToken | BadToken => StatusCode::UNAUTHORIZED,
         }
     }
 }

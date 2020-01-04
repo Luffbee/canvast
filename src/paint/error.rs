@@ -1,4 +1,4 @@
-use actix_web::{HttpResponse, ResponseError};
+use actix_web::{http::StatusCode, ResponseError};
 use thiserror::Error;
 use tokio::sync::watch::error::SendError;
 
@@ -8,6 +8,8 @@ pub type PaintResult<T> = Result<T, PaintError>;
 pub enum PaintError {
     #[error("internal error")]
     Internal(#[from] InternalError),
+    #[error("invalid png name")]
+    InvalidPNGName,
     #[error("invalid png: {0}")]
     InvalidPNG(String),
     #[error("png decode error")]
@@ -17,12 +19,12 @@ pub enum PaintError {
 }
 
 impl ResponseError for PaintError {
-    fn error_response(&self) -> HttpResponse {
+    fn status_code(&self) -> StatusCode {
         use PaintError::*;
         match self {
-            Internal(_) => HttpResponse::InternalServerError().into(),
-            InvalidPNG(_) | PNGDecodeError(_) | InvalidData(_) => {
-                HttpResponse::UnprocessableEntity().into()
+            Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
+            InvalidPNGName | InvalidPNG(_) | PNGDecodeError(_) | InvalidData(_) => {
+                StatusCode::UNPROCESSABLE_ENTITY
             }
         }
     }
