@@ -17,9 +17,8 @@ impl User {
     pub fn validate(&self) -> UserResult<()> {
         // validate name
         const LEN: RangeInclusive<usize> = 1..=64;
-        const PAT: &str = r"^[a-zA-Z][-.@\w]*$";
         lazy_static! {
-            static ref RE: Regex = Regex::new(PAT).unwrap();
+            static ref RE: Regex = Regex::new(r"^[a-zA-Z][-.@\w]*$").unwrap();
         }
         validate_length("name", &self.name, &LEN)?;
         validate_pattern("name", &self.name, &RE)?;
@@ -39,9 +38,8 @@ impl WithPassword {
         self.user.validate()?;
         // validate password
         const LEN: RangeInclusive<usize> = 6..=32;
-        const PAT: &str = r"^[-.@\w]*$";
         lazy_static! {
-            static ref RE: Regex = Regex::new(PAT).unwrap();
+            static ref RE: Regex = Regex::new(r"^[-.@\w]*$").unwrap();
         }
         validate_length("password", &self.password, &LEN)?;
         validate_pattern("password", &self.password, &RE)

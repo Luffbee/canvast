@@ -18,7 +18,9 @@ lazy_static! {
 async fn main() -> std::io::Result<()> {
     // init the timer
     now();
-    std::env::set_var("RUST_LOG", "actix_web=info");
+    if std::env::var_os("RUST_LOG").is_none() {
+        std::env::set_var("RUST_LOG", "canvast=warn,actix_web=info");
+    }
     env_logger::init();
 
     let addr = [([0, 0, 0, 0], 8088).into()];
